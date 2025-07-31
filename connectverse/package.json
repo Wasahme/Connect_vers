@@ -50,12 +50,7 @@
     "turbo": "^1.11.2",
     "typescript": "^5.3.3"
   },
-  "dependencies": {
-    "@repo/shared-types": "workspace:*",
-    "@repo/shared-utils": "workspace:*",
-    "@repo/shared-ui": "workspace:*",
-    "@repo/design-system": "workspace:*"
-  },
+  "dependencies": {},
   "engines": {
     "node": ">=20.0.0",
     "npm": ">=10.0.0"
