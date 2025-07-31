@@ -1,0 +1,574 @@
+name: 🚀 ConnectVerse CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, staging]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  NODE_VERSION: '20'
+  JAVA_VERSION: '17'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # 🔍 Code Quality & Security Checks
+  code-quality:
+    name: 🔍 Code Quality & Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run build --if-present
+
+      - name: 🔍 TypeScript Check
+        run: npm run type-check
+
+      - name: 🎨 ESLint Check
+        run: npm run lint
+
+      - name: 💅 Prettier Check
+        run: npm run format:check
+
+      - name: 🔒 Security Audit
+        run: npm audit --audit-level=moderate
+
+      - name: 🛡️ CodeQL Analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, typescript
+
+      - name: 🛡️ Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      - name: 📊 SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # 🧪 Unit & Integration Tests
+  test:
+    name: 🧪 Tests
+    runs-on: ubuntu-latest
+    needs: code-quality
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        test-type: [unit, integration]
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🗄️ Setup Test Database
+        run: |
+          docker run -d \
+            --name test-postgres \
+            -e POSTGRES_PASSWORD=test \
+            -e POSTGRES_DB=connectverse_test \
+            -p 5432:5432 \
+            postgres:15-alpine
+
+          docker run -d \
+            --name test-redis \
+            -p 6379:6379 \
+            redis:7-alpine
+
+          docker run -d \
+            --name test-mongo \
+            -p 27017:27017 \
+            mongo:7
+
+      - name: ⏳ Wait for services
+        run: |
+          sleep 10
+          npx wait-on tcp:5432 tcp:6379 tcp:27017
+
+      - name: 🧪 Run ${{ matrix.test-type }} tests
+        run: npm run test:${{ matrix.test-type }}
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/connectverse_test
+          REDIS_URL: redis://localhost:6379
+          MONGODB_URL: mongodb://localhost:27017/connectverse_test
+
+      - name: 📊 Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: ${{ matrix.test-type }}
+          name: ${{ matrix.test-type }}-coverage
+
+  # 🎭 E2E Tests
+  e2e-tests:
+    name: 🎭 E2E Tests
+    runs-on: ubuntu-latest
+    needs: [code-quality, test]
+    timeout-minutes: 30
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build applications
+        run: |
+          npm run build:web
+          npm run build --filter=api-gateway
+
+      - name: 🐳 Start services
+        run: |
+          docker-compose -f docker-compose.test.yml up -d
+          npx wait-on http://localhost:3000 http://localhost:4000
+
+      - name: 🎭 Install Playwright
+        run: npx playwright install --with-deps
+
+      - name: 🎭 Run E2E tests
+        run: npm run test:e2e
+
+      - name: 📸 Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+  # 🌐 Build Web Application
+  build-web:
+    name: 🌐 Build Web App
+    runs-on: ubuntu-latest
+    needs: [code-quality, test]
+    timeout-minutes: 15
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Build web application
+        run: npm run build:web
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.API_URL }}
+          NEXT_PUBLIC_APP_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+
+      - name: 🧪 Test build
+        run: |
+          cd apps/web-client
+          npm start &
+          sleep 5
+          curl -f http://localhost:3000 || exit 1
+          pkill -f "npm start"
+
+      - name: 📦 Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: apps/web-client/.next/
+          retention-days: 7
+
+  # 📱 Build Mobile Application (Android)
+  build-android:
+    name: 📱 Build Android App
+    runs-on: ubuntu-latest
+    needs: [code-quality, test]
+    timeout-minutes: 45
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: ☕ Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: 🤖 Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 🚀 Setup Expo CLI
+        run: npm install -g @expo/cli eas-cli
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🔧 Setup Expo
+        run: |
+          cd apps/mobile-app
+          npx expo install --fix
+
+      - name: 🏗️ Prebuild Android
+        run: |
+          cd apps/mobile-app
+          npx expo prebuild --platform android --clear
+
+      - name: 🔐 Setup Android Keystore
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cd apps/mobile-app/android/app
+          echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > release.keystore
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+
+      - name: 🏗️ Build APK (Debug)
+        run: |
+          cd apps/mobile-app/android
+          ./gradlew assembleDebug
+
+      - name: 🏗️ Build AAB (Release)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cd apps/mobile-app/android
+          ./gradlew bundleRelease
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: 📦 Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: apps/mobile-app/android/app/build/outputs/apk/debug/
+          retention-days: 7
+
+      - name: 📦 Upload AAB
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: apps/mobile-app/android/app/build/outputs/bundle/release/
+          retention-days: 30
+
+  # 🍎 Build Mobile Application (iOS)
+  build-ios:
+    name: 🍎 Build iOS App
+    runs-on: macos-latest
+    needs: [code-quality, test]
+    timeout-minutes: 45
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 🍎 Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: 🚀 Setup Expo CLI
+        run: npm install -g @expo/cli eas-cli
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗️ Prebuild iOS
+        run: |
+          cd apps/mobile-app
+          npx expo prebuild --platform ios --clear
+
+      - name: 📱 Build iOS
+        run: |
+          cd apps/mobile-app/ios
+          xcodebuild -workspace ConnectVerse.xcworkspace \
+                     -scheme ConnectVerse \
+                     -configuration Debug \
+                     -destination 'generic/platform=iOS Simulator' \
+                     build
+
+  # 🐳 Build Docker Images
+  build-docker:
+    name: 🐳 Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [code-quality, test]
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        service: [web-client, api-gateway, user-service, content-service, chat-service]
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔑 Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: connectverse/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: 🏗️ Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 🚀 Deploy to Staging
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-web, build-android, build-docker, e2e-tests]
+    if: github.ref == 'refs/heads/develop' || github.event.inputs.deploy_environment == 'staging'
+    environment: staging
+    timeout-minutes: 15
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: 🔑 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: 🚀 Deploy to EKS Staging
+        run: |
+          aws eks update-kubeconfig --name connectverse-staging
+          kubectl apply -f infrastructure/kubernetes/staging/
+          kubectl rollout status deployment/web-client -n staging
+          kubectl rollout status deployment/api-gateway -n staging
+
+      - name: 🌐 Deploy Web to Vercel Staging
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: apps/web-client
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+
+      - name: 📱 Deploy Mobile to Expo
+        run: |
+          cd apps/mobile-app
+          npx eas update --branch staging --message "Deploy from ${{ github.sha }}"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+  # 🚀 Deploy to Production
+  deploy-production:
+    name: 🚀 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-web, build-android, build-docker, e2e-tests]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.deploy_environment == 'production'
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: 🔑 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: 🚀 Deploy to EKS Production
+        run: |
+          aws eks update-kubeconfig --name connectverse-production
+          kubectl apply -f infrastructure/kubernetes/production/
+          kubectl rollout status deployment/web-client -n production
+          kubectl rollout status deployment/api-gateway -n production
+
+      - name: 🌐 Deploy Web to Vercel Production
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+          working-directory: apps/web-client
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+
+      - name: 📱 Submit to App Stores
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cd apps/mobile-app
+          
+          # Submit to Google Play Store
+          npx eas submit --platform android --latest
+          
+          # Submit to Apple App Store (if iOS build exists)
+          # npx eas submit --platform ios --latest
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+  # 🔍 Post-Deploy Health Checks
+  health-check:
+    name: 🔍 Health Checks
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always() && (needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success')
+    timeout-minutes: 10
+    steps:
+      - name: 🔍 Check Web Application
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            URL="https://connectverse.com"
+          else
+            URL="https://staging.connectverse.com"
+          fi
+          
+          curl -f $URL/health || exit 1
+          curl -f $URL/api/health || exit 1
+
+      - name: 🔍 Check API Services
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            API_URL="https://api.connectverse.com"
+          else
+            API_URL="https://api-staging.connectverse.com"
+          fi
+          
+          curl -f $API_URL/health || exit 1
+          curl -f $API_URL/v1/users/health || exit 1
+          curl -f $API_URL/v1/content/health || exit 1
+          curl -f $API_URL/v1/chat/health || exit 1
+
+      - name: 📊 Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            https://connectverse.com
+            https://connectverse.com/login
+            https://connectverse.com/register
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+  # 🚨 Notify on Failure
+  notify-failure:
+    name: 🚨 Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [code-quality, test, e2e-tests, build-web, build-android, deploy-staging, deploy-production]
+    if: failure()
+    steps:
+      - name: 🚨 Send Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          channel: '#deployments'
+          text: '🚨 ConnectVerse deployment failed!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: 📧 Send email notification
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: '🚨 ConnectVerse Deployment Failed'
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: 'ConnectVerse CI/CD <noreply@connectverse.com>'
+          body: |
+            The ConnectVerse deployment pipeline has failed.
+            
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            
+            Please check the GitHub Actions logs for more details.
+
+  # ✅ Notify on Success
+  notify-success:
+    name: ✅ Notify on Success
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production, health-check]
+    if: success()
+    steps:
+      - name: ✅ Send success notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          channel: '#deployments'
+          text: '✅ ConnectVerse deployed successfully!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,202 @@
+{
+  "expo": {
+    "name": "ConnectVerse",
+    "slug": "connectverse",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "connectverse",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.connectverse.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true,
+        "NSCameraUsageDescription": "ConnectVerse needs access to camera to capture photos and videos for posts",
+        "NSMicrophoneUsageDescription": "ConnectVerse needs access to microphone to record audio and video messages",
+        "NSPhotoLibraryUsageDescription": "ConnectVerse needs access to photo library to share photos and videos",
+        "NSLocationWhenInUseUsageDescription": "ConnectVerse uses location to show nearby friends and places",
+        "NSContactsUsageDescription": "ConnectVerse needs access to contacts to help you find friends",
+        "NSCalendarsUsageDescription": "ConnectVerse needs access to calendar to create events",
+        "NSFaceIDUsageDescription": "ConnectVerse uses Face ID for secure authentication",
+        "NSMotionUsageDescription": "ConnectVerse uses motion data for activity tracking",
+        "NSBluetoothAlwaysUsageDescription": "ConnectVerse uses Bluetooth for nearby device connections",
+        "NSSpeechRecognitionUsageDescription": "ConnectVerse uses speech recognition for voice messages",
+        "NSAppleMusicUsageDescription": "ConnectVerse needs access to music library for audio posts"
+      },
+      "associatedDomains": [
+        "applinks:connectverse.com",
+        "applinks:www.connectverse.com"
+      ],
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "googleServicesFile": "./google-services/GoogleService-Info.plist"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#1a1a2e"
+      },
+      "package": "com.connectverse.app",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "READ_CONTACTS",
+        "WRITE_CONTACTS",
+        "READ_CALENDAR",
+        "WRITE_CALENDAR",
+        "USE_FINGERPRINT",
+        "USE_BIOMETRIC",
+        "VIBRATE",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED",
+        "SYSTEM_ALERT_WINDOW",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
+        "INTERNET",
+        "FOREGROUND_SERVICE",
+        "MODIFY_AUDIO_SETTINGS"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "connectverse.com"
+            },
+            {
+              "scheme": "https",
+              "host": "www.connectverse.com"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "googleServicesFile": "./google-services/google-services.json"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ConnectVerse to access your camera to capture photos and videos for posts."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ConnectVerse to access your photo library to share photos and videos.",
+          "cameraPermission": "Allow ConnectVerse to access your camera to capture photos and videos for posts."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow ConnectVerse to use your location to show nearby friends and places.",
+          "locationAlwaysPermission": "Allow ConnectVerse to use your location to show nearby friends and places.",
+          "locationWhenInUsePermission": "Allow ConnectVerse to use your location to show nearby friends and places."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow ConnectVerse to access your contacts to help you find friends."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#ffffff",
+          "sounds": [
+            "./assets/sounds/notification.wav"
+          ]
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow ConnectVerse to use Face ID for secure authentication."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow ConnectVerse to access your microphone to record audio and video messages."
+        }
+      ],
+      [
+        "@react-native-async-storage/async-storage",
+        {
+          "StoragePermission": "Allow ConnectVerse to store data locally for better performance."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "34.0.0",
+            "proguardMinifyEnabled": true,
+            "packagingOptions": {
+              "pickFirst": [
+                "**/libc++_shared.so",
+                "**/libjsc.so"
+              ]
+            }
+          },
+          "ios": {
+            "deploymentTarget": "13.0"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "tsconfigPaths": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "your-project-id-here"
+      }
+    },
+    "owner": "connectverse-team",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/your-project-id-here"
+    }
+  }
+}
